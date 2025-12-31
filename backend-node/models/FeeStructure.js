@@ -90,6 +90,15 @@ const FeeStructure = sequelize.define('FeeStructure', {
   description: {
     type: DataTypes.TEXT,
     allowNull: true
+  },
+  institute_id: {
+    type: DataTypes.UUID,
+    allowNull: false,
+    references: {
+      model: 'institutes',
+      key: 'id'
+    },
+    comment: 'Institute/Organization this fee structure belongs to'
   }
 }, {
   timestamps: true,

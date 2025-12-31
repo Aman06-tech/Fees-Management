@@ -81,6 +81,15 @@ const Payment = sequelize.define('Payment', {
   remarks: {
     type: DataTypes.TEXT,
     allowNull: true
+  },
+  institute_id: {
+    type: DataTypes.UUID,
+    allowNull: false,
+    references: {
+      model: 'institutes',
+      key: 'id'
+    },
+    comment: 'Institute/Organization this payment belongs to'
   }
 }, {
   timestamps: true,

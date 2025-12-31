@@ -63,6 +63,15 @@ const Student = sequelize.define('Student', {
   status: {
     type: DataTypes.ENUM('active', 'inactive', 'graduated'),
     defaultValue: 'active'
+  },
+  institute_id: {
+    type: DataTypes.UUID,
+    allowNull: false,
+    references: {
+      model: 'institutes',
+      key: 'id'
+    },
+    comment: 'Institute/Organization this student belongs to'
   }
 }, {
   timestamps: true,

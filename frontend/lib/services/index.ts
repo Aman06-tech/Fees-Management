@@ -4,6 +4,8 @@ export * from './students';
 export * from './dashboard';
 export * from './payments';
 export * from './feeStructures';
+export * from './reports';
 
 // Re-export for better IDE support
 export { feeStructuresService } from './feeStructures';
+export { reportService } from './reports';

@@ -40,14 +40,29 @@ exports.getFeeDues = async (req, res) => {
       where.status = { [Op.in]: ['due', 'overdue'] };
     }
 
+    // Role-based filtering on included Student model
+    const studentInclude = {
+      model: Student,
+      as: 'student',
+      attributes: ['id', 'serial_number', 'name', 'email', 'phone', 'course', 'parent_name', 'parent_email', 'parent_phone'],
+      where: {}
+    };
+
+    if (req.user.role === 'student') {
+      // Students can only see their own fee dues
+      studentInclude.where = { email: req.user.email };
+      studentInclude.required = true; // INNER JOIN
+    } else if (req.user.role === 'parent') {
+      // Parents can only see their children's fee dues
+      studentInclude.where = { parent_email: req.user.email };
+      studentInclude.required = true; // INNER JOIN
+    }
+    // Admin and accountant can see all fee dues
+
     const feeDues = await FeeDue.findAll({
       where,
       include: [
-        {
-          model: Student,
-          as: 'student',
-          attributes: ['id', 'serial_number', 'name', 'email', 'phone', 'course', 'parent_name', 'parent_email', 'parent_phone']
-        },
+        studentInclude,
         {
           model: FeeStructure,
           as: 'feeStructure',

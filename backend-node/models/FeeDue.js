@@ -42,8 +42,7 @@ const FeeDue = sequelize.define('FeeDue', {
   },
   status: {
     type: DataTypes.ENUM('pending', 'due', 'overdue', 'paid', 'partially_paid'),
-    defaultValue: 'pending',
-    comment: 'pending: not yet due, due: due today, overdue: past due date, paid: fully paid'
+    defaultValue: 'pending'
   },
   amount_paid: {
     type: DataTypes.DECIMAL(10, 2),

@@ -36,18 +36,41 @@ exports.getPayments = async (req, res) => {
     const { student_id } = req.query;
 
     const where = {};
+
+    // CRITICAL: Institute-based filtering - ensures data isolation
+    if (req.user && req.user.institute_id) {
+      where.institute_id = req.user.institute_id;
+    } else {
+      return res.status(403).json({ message: 'Institute context not found' });
+    }
+
     if (student_id) {
       where.student_id = student_id;
     }
 
+    // Role-based filtering on included Student model
+    const studentInclude = {
+      model: Student,
+      as: 'student',
+      attributes: ['id', 'serial_number', 'name', 'email', 'course', 'parent_email'],
+      where: {}
+    };
+
+    if (req.user.role === 'student') {
+      // Students can only see their own payments
+      studentInclude.where = { email: req.user.email };
+      studentInclude.required = true; // INNER JOIN
+    } else if (req.user.role === 'parent') {
+      // Parents can only see their children's payments
+      studentInclude.where = { parent_email: req.user.email };
+      studentInclude.required = true; // INNER JOIN
+    }
+    // Admin and accountant see all payments within their institute
+
     const payments = await Payment.findAll({
       where,
       include: [
-        {
-          model: Student,
-          as: 'student',
-          attributes: ['id', 'serial_number', 'name', 'email', 'course']
-        },
+        studentInclude,
         {
           model: FeeStructure,
           as: 'feeStructure',
@@ -87,6 +110,11 @@ exports.getPaymentById = async (req, res) => {
       return res.status(404).json({ message: 'Payment not found' });
     }
 
+    // CRITICAL: Institute-based access control
+    if (payment.institute_id !== req.user.institute_id) {
+      return res.status(403).json({ message: "Access denied - payment belongs to a different institute" });
+    }
+
     res.json(payment);
   } catch (error) {
     return handleSequelizeError(res, error);
@@ -98,8 +126,22 @@ exports.getPaymentById = async (req, res) => {
 // @access  Private
 exports.getPaymentsByStudent = async (req, res) => {
   try {
+    // CRITICAL: First verify student belongs to user's institute
+    const student = await Student.findByPk(req.params.studentId);
+
+    if (!student) {
+      return res.status(404).json({ message: 'Student not found' });
+    }
+
+    if (student.institute_id !== req.user.institute_id) {
+      return res.status(403).json({ message: "Access denied - student belongs to a different institute" });
+    }
+
     const payments = await Payment.findAll({
-      where: { student_id: req.params.studentId },
+      where: {
+        student_id: req.params.studentId,
+        institute_id: req.user.institute_id // Double-check institute_id
+      },
       include: [
         {
           model: Student,
@@ -148,18 +190,27 @@ exports.createPayment = async (req, res) => {
       });
     }
 
-    // Check if student exists
+    // CRITICAL: Check if student exists and belongs to user's institute
     const student = await Student.findByPk(student_id);
     if (!student) {
       return res.status(404).json({ message: "Student not found" });
     }
 
-    // Check if fee structure exists
+    if (student.institute_id !== req.user.institute_id) {
+      return res.status(403).json({ message: "Access denied - student belongs to a different institute" });
+    }
+
+    // CRITICAL: Check if fee structure exists and belongs to user's institute
     const feeStructure = await FeeStructure.findByPk(fee_structure_id);
     if (!feeStructure) {
       return res.status(404).json({ message: "Fee structure not found" });
     }
 
+    if (feeStructure.institute_id !== req.user.institute_id) {
+      return res.status(403).json({ message: "Access denied - fee structure belongs to a different institute" });
+    }
+
+    // CRITICAL: Create payment with institute_id from authenticated user
     const payment = await Payment.create({
       student_id,
       fee_structure_id,
@@ -172,7 +223,8 @@ exports.createPayment = async (req, res) => {
       total_amount,
       status,
       payment_period,
-      remarks
+      remarks,
+      institute_id: req.user.institute_id
     });
 
     // Auto-update fee dues if there's a matching fee due
@@ -279,11 +331,24 @@ exports.updatePayment = async (req, res) => {
       remarks
     } = req.body;
 
-    // If references are being updated, check if they exist
+    // CRITICAL: First check if payment belongs to user's institute
+    const payment = await Payment.findByPk(req.params.id);
+    if (!payment) {
+      return res.status(404).json({ message: "Payment not found" });
+    }
+
+    if (payment.institute_id !== req.user.institute_id) {
+      return res.status(403).json({ message: "Access denied - payment belongs to a different institute" });
+    }
+
+    // If references are being updated, check if they exist and belong to same institute
     if (student_id) {
       const student = await Student.findByPk(student_id);
       if (!student) {
         return res.status(404).json({ message: "Student not found" });
+      }
+      if (student.institute_id !== req.user.institute_id) {
+        return res.status(403).json({ message: "Access denied - student belongs to a different institute" });
       }
     }
 
@@ -291,6 +356,9 @@ exports.updatePayment = async (req, res) => {
       const feeStructure = await FeeStructure.findByPk(fee_structure_id);
       if (!feeStructure) {
         return res.status(404).json({ message: "Fee structure not found" });
+      }
+      if (feeStructure.institute_id !== req.user.institute_id) {
+        return res.status(403).json({ message: "Access denied - fee structure belongs to a different institute" });
       }
     }
 
@@ -309,15 +377,15 @@ exports.updatePayment = async (req, res) => {
         payment_period,
         remarks
       },
-      { where: { id: req.params.id } }
+      { where: { id: req.params.id, institute_id: req.user.institute_id } } // Double-check institute_id
     );
 
     if (updatedCount === 0) {
-      return res.status(404).json({ message: 'Payment not found' });
+      return res.status(404).json({ message: 'Payment not found or access denied' });
     }
 
     // Fetch updated record with associations
-    const payment = await Payment.findByPk(req.params.id, {
+    const updatedPayment = await Payment.findByPk(req.params.id, {
       include: [
         {
           model: Student,
@@ -332,7 +400,7 @@ exports.updatePayment = async (req, res) => {
       ]
     });
 
-    res.json(payment);
+    res.json(updatedPayment);
   } catch (error) {
     return handleSequelizeError(res, error);
   }
@@ -343,13 +411,18 @@ exports.updatePayment = async (req, res) => {
 // @access  Private
 exports.deletePayment = async (req, res) => {
   try {
+    // CRITICAL: Check if payment belongs to user's institute before deleting
     const payment = await Payment.findByPk(req.params.id);
 
     if (!payment) {
       return res.status(404).json({ message: 'Payment not found' });
     }
 
-    await Payment.destroy({ where: { id: req.params.id } });
+    if (payment.institute_id !== req.user.institute_id) {
+      return res.status(403).json({ message: "Access denied - payment belongs to a different institute" });
+    }
+
+    await Payment.destroy({ where: { id: req.params.id, institute_id: req.user.institute_id } });
 
     res.json({
       message: 'Payment deleted successfully',
@@ -367,9 +440,15 @@ exports.getRecentPayments = async (req, res) => {
   try {
     const { limit } = req.query;
 
+    // CRITICAL: Institute-based filtering
+    if (!req.user || !req.user.institute_id) {
+      return res.status(403).json({ message: 'Institute context not found' });
+    }
+
     const payments = await Payment.findAll({
       where: {
-        status: 'completed'
+        status: 'completed',
+        institute_id: req.user.institute_id
       },
       include: [
         {

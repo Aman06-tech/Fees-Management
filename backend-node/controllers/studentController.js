@@ -59,13 +59,40 @@ exports.getStudents = async (req, res) => {
     const { q = "", page = 1, limit = 25, sort = "-createdAt" } = req.query;
 
     const where = {};
+
+    // CRITICAL: Institute-based filtering - ensures data isolation
+    if (req.user && req.user.institute_id) {
+      where.institute_id = req.user.institute_id;
+    } else {
+      return res.status(403).json({ message: 'Institute context not found' });
+    }
+
+    // Role-based access control
+    if (req.user.role === 'student') {
+      // Students can only see their own record
+      where.email = req.user.email;
+    } else if (req.user.role === 'parent') {
+      // Parents can only see their children's records
+      where.parent_email = req.user.email;
+    }
+    // Admin and accountant can see all students within their institute
+
     if (q && q.trim()) {
-      where[Op.or] = [
-        { name: { [Op.iLike]: `%${q.trim()}%` } },
-        { serial_number: { [Op.iLike]: `%${q.trim()}%` } },
-        { email: { [Op.iLike]: `%${q.trim()}%` } },
-        { course: { [Op.iLike]: `%${q.trim()}%` } },
-      ];
+      const searchCondition = {
+        [Op.or]: [
+          { name: { [Op.iLike]: `%${q.trim()}%` } },
+          { serial_number: { [Op.iLike]: `%${q.trim()}%` } },
+          { email: { [Op.iLike]: `%${q.trim()}%` } },
+          { course: { [Op.iLike]: `%${q.trim()}%` } },
+        ]
+      };
+
+      // Combine role-based filter with search
+      if (Object.keys(where).length > 0) {
+        where[Op.and] = [searchCondition];
+      } else {
+        Object.assign(where, searchCondition);
+      }
     }
 
     const pageNum = Math.max(parseInt(page, 10) || 1, 1);
@@ -116,6 +143,25 @@ exports.getStudentById = async (req, res) => {
       return res.status(404).json({ message: "Student not found" });
     }
 
+    // CRITICAL: Institute-based access control
+    if (student.institute_id !== req.user.institute_id) {
+      return res.status(403).json({ message: "Access denied - student belongs to a different institute" });
+    }
+
+    // Role-based access control
+    if (req.user.role === 'student') {
+      // Students can only view their own record
+      if (student.email !== req.user.email) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+    } else if (req.user.role === 'parent') {
+      // Parents can only view their children's records
+      if (student.parent_email !== req.user.email) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+    }
+    // Admin and accountant can view any student
+
     res.json(student);
   } catch (error) {
     return handleSequelizeError(res, error);
@@ -126,6 +172,9 @@ exports.getStudentById = async (req, res) => {
 exports.createStudent = async (req, res) => {
   try {
     const payload = sanitizePayload(req.body);
+
+    // CRITICAL: Add institute_id from authenticated user
+    payload.institute_id = req.user.institute_id;
 
     // basic required checks (adjust according to your model rules)
     const required = [
@@ -146,9 +195,10 @@ exports.createStudent = async (req, res) => {
       }
     }
 
-    // check unique serial_number / email before create to give friendly error
+    // CRITICAL: check unique serial_number / email within the same institute
     const existing = await Student.findOne({
       where: {
+        institute_id: req.user.institute_id,
         [Op.or]: [
           { serial_number: payload.serial_number },
           { email: payload.email }
@@ -160,7 +210,7 @@ exports.createStudent = async (req, res) => {
       if (existing.serial_number === payload.serial_number) {
         return res
           .status(409)
-          .json({ message: "serial_number already exists" });
+          .json({ message: "serial_number already exists in your institute" });
       }
       if (existing.email === payload.email) {
         return res.status(409).json({ message: "email already exists" });
@@ -180,7 +230,20 @@ exports.updateStudent = async (req, res) => {
   try {
     const id = req.params.id;
 
+    // CRITICAL: First check if student belongs to user's institute
+    const student = await Student.findByPk(id);
+    if (!student) {
+      return res.status(404).json({ message: "Student not found" });
+    }
+
+    if (student.institute_id !== req.user.institute_id) {
+      return res.status(403).json({ message: "Access denied - student belongs to a different institute" });
+    }
+
     const payload = sanitizePayload(req.body);
+
+    // Prevent changing institute_id
+    delete payload.institute_id;
 
     // Prevent setting invalid status if you have enum
     if (payload.status) {
@@ -190,7 +253,7 @@ exports.updateStudent = async (req, res) => {
       }
     }
 
-    // If email or serial_number is being updated, ensure uniqueness
+    // CRITICAL: If email or serial_number is being updated, ensure uniqueness within institute
     if (payload.email || payload.serial_number) {
       const orConditions = [];
       if (payload.email) orConditions.push({ email: payload.email });
@@ -198,6 +261,7 @@ exports.updateStudent = async (req, res) => {
 
       const conflict = await Student.findOne({
         where: {
+          institute_id: req.user.institute_id,
           id: { [Op.ne]: id },
           [Op.or]: orConditions,
         },
@@ -207,25 +271,25 @@ exports.updateStudent = async (req, res) => {
         if (conflict.serial_number === payload.serial_number) {
           return res
             .status(409)
-            .json({ message: "serial_number already exists" });
+            .json({ message: "serial_number already exists in your institute" });
         }
         if (conflict.email === payload.email) {
-          return res.status(409).json({ message: "email already exists" });
+          return res.status(409).json({ message: "email already exists in your institute" });
         }
       }
     }
 
     const [updatedCount] = await Student.update(payload, {
-      where: { id },
+      where: { id, institute_id: req.user.institute_id }, // Double-check institute_id
     });
 
     if (updatedCount === 0) {
-      return res.status(404).json({ message: "Student not found" });
+      return res.status(404).json({ message: "Student not found or access denied" });
     }
 
-    const student = await Student.findByPk(id);
+    const updatedStudent = await Student.findByPk(id);
 
-    return res.json(student);
+    return res.json(updatedStudent);
   } catch (error) {
     return handleSequelizeError(res, error);
   }
@@ -236,12 +300,17 @@ exports.deleteStudent = async (req, res) => {
   try {
     const id = req.params.id;
 
+    // CRITICAL: Check if student belongs to user's institute before deleting
     const student = await Student.findByPk(id);
     if (!student) {
       return res.status(404).json({ message: "Student not found" });
     }
 
-    await Student.destroy({ where: { id } });
+    if (student.institute_id !== req.user.institute_id) {
+      return res.status(403).json({ message: "Access denied - student belongs to a different institute" });
+    }
+
+    await Student.destroy({ where: { id, institute_id: req.user.institute_id } });
 
     return res.json({
       message: "Student deleted successfully",

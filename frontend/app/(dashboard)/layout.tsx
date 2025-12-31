@@ -11,16 +11,16 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { user, loading } = useAuth();
+  const { backendUser, loading } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    // Check if user is authenticated
-    if (!loading && !user) {
+    // Check if user is authenticated with backend (primary auth)
+    if (!loading && !backendUser) {
       // No user logged in, redirect to login
       router.push('/login');
     }
-  }, [user, loading, router]);
+  }, [backendUser, loading, router]);
 
   // Show loading state while checking authentication
   if (loading) {
@@ -35,7 +35,7 @@ export default function DashboardLayout({
   }
 
   // Don't render dashboard if not authenticated
-  if (!user) {
+  if (!backendUser) {
     return null;
   }
 

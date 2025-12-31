@@ -1,11 +1,54 @@
+const Institute = require('./Institute');
 const Student = require('./Student');
 const FeeType = require('./FeeType');
 const FeeStructure = require('./FeeStructure');
 const Payment = require('./Payment');
 const FeeDue = require('./FeeDue');
 const User = require('./User');
+const Settings = require('./Settings');
 
 // Define associations
+
+// Institute associations
+Institute.hasMany(User, {
+  foreignKey: 'institute_id',
+  as: 'users'
+});
+
+User.belongsTo(Institute, {
+  foreignKey: 'institute_id',
+  as: 'institute'
+});
+
+Institute.hasMany(Student, {
+  foreignKey: 'institute_id',
+  as: 'students'
+});
+
+Student.belongsTo(Institute, {
+  foreignKey: 'institute_id',
+  as: 'institute'
+});
+
+Institute.hasMany(FeeStructure, {
+  foreignKey: 'institute_id',
+  as: 'feeStructures'
+});
+
+FeeStructure.belongsTo(Institute, {
+  foreignKey: 'institute_id',
+  as: 'institute'
+});
+
+Institute.hasMany(Payment, {
+  foreignKey: 'institute_id',
+  as: 'payments'
+});
+
+Payment.belongsTo(Institute, {
+  foreignKey: 'institute_id',
+  as: 'institute'
+});
 
 // Payment belongs to Student
 Payment.belongsTo(Student, {
@@ -82,10 +125,12 @@ Payment.hasOne(FeeDue, {
 });
 
 module.exports = {
+  Institute,
   Student,
   FeeType,
   FeeStructure,
   Payment,
   FeeDue,
-  User
+  User,
+  Settings
 };

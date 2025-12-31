@@ -14,14 +14,23 @@ import {
 import { auth, googleProvider } from '@/lib/firebase';
 import { authService } from '@/lib/services';
 
+interface BackendUser {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+}
+
 interface AuthContextType {
   user: User | null;
+  backendUser: BackendUser | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, name: string, role?: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
+  refreshBackendUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -36,9 +45,35 @@ export function useAuth() {
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [backendUser, setBackendUser] = useState<BackendUser | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Function to fetch backend user data
+  const refreshBackendUser = async () => {
+    const token = localStorage.getItem('auth_token');
+    if (!token) {
+      setBackendUser(null);
+      return;
+    }
+
+    try {
+      const userData = await authService.getMe();
+      setBackendUser(userData);
+    } catch (error) {
+      console.error('Error fetching backend user:', error);
+      // If token is invalid, clear it
+      localStorage.removeItem('auth_token');
+      setBackendUser(null);
+    }
+  };
+
   useEffect(() => {
+    // Check for backend auth token and fetch user
+    const initAuth = async () => {
+      await refreshBackendUser();
+      setLoading(false);
+    };
+
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         setUser(firebaseUser);
@@ -53,10 +88,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else {
         setUser(null);
         localStorage.removeItem('firebase_token');
-        localStorage.removeItem('auth_token');
       }
-      setLoading(false);
+
+      // Always fetch backend user data
+      await refreshBackendUser();
     });
+
+    initAuth();
 
     return unsubscribe;
   }, []);
@@ -70,6 +108,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (backendResponse.token) {
         localStorage.setItem('auth_token', backendResponse.token);
       }
+
+      // Fetch backend user data immediately
+      await refreshBackendUser();
 
       // Then sign in with Firebase (optional - for additional features)
       try {
@@ -109,6 +150,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (backendResponse.token) {
         localStorage.setItem('auth_token', backendResponse.token);
       }
+
+      // Fetch backend user data immediately
+      await refreshBackendUser();
 
       // Then create user in Firebase (optional - for additional features)
       try {
@@ -167,6 +211,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error('No authentication token received from backend');
       }
 
+      // Fetch backend user data immediately
+      await refreshBackendUser();
+
       return;
     } catch (error: any) {
       console.error('Google sign in error:', error);
@@ -190,6 +237,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await signOut(auth);
       localStorage.removeItem('auth_token');
       localStorage.removeItem('firebase_token');
+      setBackendUser(null);
       // Redirect to home/login page
       window.location.href = '/login';
     } catch (error: any) {
@@ -197,6 +245,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Even if there's an error, clear tokens and redirect
       localStorage.removeItem('auth_token');
       localStorage.removeItem('firebase_token');
+      setBackendUser(null);
       window.location.href = '/login';
     }
   };
@@ -212,12 +261,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const value: AuthContextType = {
     user,
+    backendUser,
     loading,
     signIn,
     signUp,
     signInWithGoogle,
     logout,
-    resetPassword
+    resetPassword,
+    refreshBackendUser
   };
 
   return (

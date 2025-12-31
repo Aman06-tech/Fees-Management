@@ -27,6 +27,15 @@ const User = sequelize.define('User', {
   role: {
     type: DataTypes.ENUM('admin', 'accountant', 'student', 'parent'),
     defaultValue: 'student'
+  },
+  institute_id: {
+    type: DataTypes.UUID,
+    allowNull: false,
+    references: {
+      model: 'institutes',
+      key: 'id'
+    },
+    comment: 'Institute/Organization this user belongs to'
   }
 }, {
   timestamps: true,

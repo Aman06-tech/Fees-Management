@@ -53,6 +53,14 @@ exports.getFeeStructures = async (req, res) => {
     const { course } = req.query;
 
     const where = {};
+
+    // CRITICAL: Institute-based filtering - ensures data isolation
+    if (req.user && req.user.institute_id) {
+      where.institute_id = req.user.institute_id;
+    } else {
+      return res.status(403).json({ message: 'Institute context not found' });
+    }
+
     if (course) {
       where.course = course;
     }
@@ -77,6 +85,11 @@ exports.getFeeStructureById = async (req, res) => {
 
     if (!feeStructure) {
       return res.status(404).json({ message: 'Fee structure not found' });
+    }
+
+    // CRITICAL: Institute-based access control
+    if (feeStructure.institute_id !== req.user.institute_id) {
+      return res.status(403).json({ message: "Access denied - fee structure belongs to a different institute" });
     }
 
     res.json(feeStructure);
@@ -119,6 +132,7 @@ exports.createFeeStructure = async (req, res) => {
       total_amount: total_amount || amount
     });
 
+    // CRITICAL: Create fee structure with institute_id from authenticated user
     const feeStructure = await FeeStructure.create({
       course,
       name,
@@ -131,7 +145,8 @@ exports.createFeeStructure = async (req, res) => {
       quarterly_amount: quarterly_amount || 0,
       yearly_amount: yearly_amount || 0,
       discount_percentage: discount_percentage || 0,
-      ...calculatedAmounts
+      ...calculatedAmounts,
+      institute_id: req.user.institute_id
     });
 
     res.status(201).json(feeStructure);
@@ -160,6 +175,16 @@ exports.updateFeeStructure = async (req, res) => {
       total_amount
     } = req.body;
 
+    // CRITICAL: First check if fee structure belongs to user's institute
+    const feeStructure = await FeeStructure.findByPk(req.params.id);
+    if (!feeStructure) {
+      return res.status(404).json({ message: "Fee structure not found" });
+    }
+
+    if (feeStructure.institute_id !== req.user.institute_id) {
+      return res.status(403).json({ message: "Access denied - fee structure belongs to a different institute" });
+    }
+
     // Calculate discount amounts
     const calculatedAmounts = calculateAmounts({
       amount,
@@ -184,16 +209,16 @@ exports.updateFeeStructure = async (req, res) => {
 
     const [updatedCount] = await FeeStructure.update(
       updateData,
-      { where: { id: req.params.id } }
+      { where: { id: req.params.id, institute_id: req.user.institute_id } } // Double-check institute_id
     );
 
     if (updatedCount === 0) {
-      return res.status(404).json({ message: 'Fee structure not found' });
+      return res.status(404).json({ message: 'Fee structure not found or access denied' });
     }
 
-    const feeStructure = await FeeStructure.findByPk(req.params.id);
+    const updatedFeeStructure = await FeeStructure.findByPk(req.params.id);
 
-    res.json(feeStructure);
+    res.json(updatedFeeStructure);
   } catch (error) {
     return handleSequelizeError(res, error);
   }
@@ -204,20 +229,41 @@ exports.updateFeeStructure = async (req, res) => {
 // @access  Private
 exports.deleteFeeStructure = async (req, res) => {
   try {
+    // CRITICAL: Check if fee structure belongs to user's institute before deleting
     const feeStructure = await FeeStructure.findByPk(req.params.id);
 
     if (!feeStructure) {
       return res.status(404).json({ message: 'Fee structure not found' });
     }
 
-    // Check if fee structure is being used by any students
+    if (feeStructure.institute_id !== req.user.institute_id) {
+      return res.status(403).json({ message: "Access denied - fee structure belongs to a different institute" });
+    }
+
+    // Check if fee structure is being used by any students/payments/fee dues in the same institute
     const Student = require('../models/Student');
     const Payment = require('../models/Payment');
     const FeeDue = require('../models/FeeDue');
 
-    const studentCount = await Student.count({ where: { fee_structure_id: req.params.id } });
-    const paymentCount = await Payment.count({ where: { fee_structure_id: req.params.id } });
-    const feeDueCount = await FeeDue.count({ where: { fee_structure_id: req.params.id } });
+    // CRITICAL: Scope the count checks to same institute only
+    const studentCount = await Student.count({
+      where: {
+        fee_structure_id: req.params.id,
+        institute_id: req.user.institute_id
+      }
+    });
+    const paymentCount = await Payment.count({
+      where: {
+        fee_structure_id: req.params.id,
+        institute_id: req.user.institute_id
+      }
+    });
+    const feeDueCount = await FeeDue.count({
+      where: {
+        fee_structure_id: req.params.id,
+        institute_id: req.user.institute_id
+      }
+    });
 
     if (studentCount > 0 || paymentCount > 0 || feeDueCount > 0) {
       const usedBy = [];
@@ -230,7 +276,7 @@ exports.deleteFeeStructure = async (req, res) => {
       });
     }
 
-    await FeeStructure.destroy({ where: { id: req.params.id } });
+    await FeeStructure.destroy({ where: { id: req.params.id, institute_id: req.user.institute_id } });
 
     res.json({
       message: 'Fee structure deleted successfully',
@@ -248,8 +294,16 @@ exports.getFeeStructuresByCourse = async (req, res) => {
   try {
     const { course } = req.params;
 
+    // CRITICAL: Institute-based filtering
+    if (!req.user || !req.user.institute_id) {
+      return res.status(403).json({ message: 'Institute context not found' });
+    }
+
     const feeStructures = await FeeStructure.findAll({
-      where: { course },
+      where: {
+        course,
+        institute_id: req.user.institute_id
+      },
       order: [['createdAt', 'DESC']]
     });
 

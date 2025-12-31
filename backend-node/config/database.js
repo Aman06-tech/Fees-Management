@@ -30,6 +30,7 @@ const connectDB = async () => {
     const FeeStructure = require('../models/FeeStructure');
     const Payment = require('../models/Payment');
     const FeeDue = require('../models/FeeDue');
+    const Settings = require('../models/Settings');
 
     // Sync models in correct order to handle foreign key dependencies
     await User.sync({ alter: true });
@@ -38,6 +39,7 @@ const connectDB = async () => {
     await FeeStructure.sync({ alter: true });
     await Payment.sync({ alter: true });
     await FeeDue.sync({ alter: true });
+    await Settings.sync({ alter: true });
 
     console.log('Database synchronized');
   } catch (error) {

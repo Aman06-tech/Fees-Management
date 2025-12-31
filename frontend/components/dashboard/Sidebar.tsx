@@ -66,8 +66,13 @@ const menuItems = [
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const { user, logout } = useAuth();
+  const { user, backendUser, logout } = useAuth();
   const [showDropdown, setShowDropdown] = useState(false);
+
+  // Use backend user data as primary source of truth
+  const displayName = backendUser?.name || user?.displayName || 'User';
+  const displayEmail = backendUser?.email || user?.email || 'user@example.com';
+  const displayRole = backendUser?.role || 'user';
 
   // Get user initials for fallback avatar
   const getInitials = (name: string | null) => {
@@ -129,23 +134,14 @@ export default function Sidebar() {
             className="w-full flex items-center space-x-3 px-4 py-3 rounded-lg hover:bg-gray-50 transition-colors"
           >
             <div className="relative">
-              {user?.photoURL ? (
-                // Google Profile Picture
-                <img
-                  src={user.photoURL}
-                  alt={user.displayName || 'User'}
-                  className="w-10 h-10 rounded-full border-2 border-gray-200"
-                />
-              ) : (
-                // Fallback Avatar with Initials
-                <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center border-2 border-gray-200">
-                  <span className="text-primary-700 font-semibold">
-                    {getInitials(user?.displayName || user?.email || '')}
-                  </span>
-                </div>
-              )}
+              {/* Always use Avatar with Initials - avoids Google CDN rate limiting */}
+              <div className="w-10 h-10 bg-primary-100 rounded-full flex items-center justify-center border-2 border-gray-200">
+                <span className="text-primary-700 font-semibold text-sm">
+                  {getInitials(displayName)}
+                </span>
+              </div>
 
-              {/* Google Icon Badge */}
+              {/* Google Icon Badge - show if user signed in with Google */}
               {isGoogleUser && (
                 <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-white rounded-full flex items-center justify-center border border-gray-200">
                   <svg className="w-3 h-3" viewBox="0 0 24 24">
@@ -172,11 +168,16 @@ export default function Sidebar() {
 
             <div className="flex-1 text-left">
               <p className="text-sm font-medium text-gray-800 truncate">
-                {user?.displayName || user?.email?.split('@')[0] || 'User'}
+                {displayName}
               </p>
               <p className="text-xs text-gray-500 truncate">
-                {user?.email || 'user@example.com'}
+                {displayEmail}
               </p>
+              {backendUser?.role && (
+                <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-primary-100 text-primary-800 mt-1">
+                  {displayRole}
+                </span>
+              )}
             </div>
 
             <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">

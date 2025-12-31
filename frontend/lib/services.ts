@@ -195,3 +195,43 @@ export const studentService = {
     return await response.json();
   }
 };
+
+// Settings Service
+export const settingsService = {
+  async getSettings(): Promise<any> {
+    const token = localStorage.getItem('auth_token') || localStorage.getItem('firebase_token');
+
+    const response = await fetch(`${API_URL}/api/settings`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Failed to fetch settings');
+    }
+
+    return await response.json();
+  },
+
+  async updateSettings(data: any): Promise<any> {
+    const token = localStorage.getItem('auth_token') || localStorage.getItem('firebase_token');
+
+    const response = await fetch(`${API_URL}/api/settings`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.message || 'Failed to update settings');
+    }
+
+    return await response.json();
+  }
+};
